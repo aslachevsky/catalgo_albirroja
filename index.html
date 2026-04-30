@@ -101,31 +101,31 @@
       position: relative;
       min-height: 92vh;
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       justify-content: center;
       overflow: hidden;
     }
     .hero-bg {
       position: absolute;
       inset: 0;
-      background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/EstadioDefensoresdelChaco.jpg/1600px-EstadioDefensoresdelChaco.jpg');
+      background-image: url('fondo.webp');
       background-size: cover;
-      background-position: center 30%;
-      filter: brightness(0.45) saturate(1.1);
+      background-position: center top;
+      filter: brightness(0.55) saturate(1.1);
       transform: scale(1.04);
       transition: transform 8s ease;
     }
     .hero:hover .hero-bg { transform: scale(1.00); }
 
-    /* Overlay gradiente con diagonal rojo-oscuro */
+    /* Overlay: transparente arriba, oscuro abajo para legibilidad del texto */
     .hero-overlay {
       position: absolute;
       inset: 0;
       background: linear-gradient(
-        135deg,
-        rgba(204,0,1,0.55) 0%,
-        rgba(0,0,0,0.2) 40%,
-        rgba(0,56,168,0.45) 100%
+        to bottom,
+        rgba(0,0,0,0.05) 0%,
+        rgba(0,0,0,0.15) 45%,
+        rgba(0,0,0,0.72) 100%
       );
     }
 
@@ -147,8 +147,9 @@
       z-index: 10;
       text-align: center;
       color: var(--blanco);
-      padding: 40px 20px;
+      padding: 40px 20px 80px;
       max-width: 900px;
+      width: 100%;
     }
     .hero-badge {
       display: inline-block;
@@ -235,6 +236,7 @@
 
     /* Scroll indicator */
     .hero-scroll {
+      display: none;
       position: absolute;
       bottom: 32px;
       left: 50%;

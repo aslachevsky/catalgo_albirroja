@@ -1326,25 +1326,38 @@
         const storRef = ref(storage, `articulos/${docRef.id}/imagen.${ext}`);
         const uploadTask = uploadBytesResumable(storRef, uploadedImageFile);
 
-        await new Promise((resolve, reject) => {
-          const uploadTimeout = setTimeout(() => {
-            uploadTask.cancel();
-            reject(new Error('Timeout: la imagen tardó demasiado en subir'));
-          }, 30000);
-          uploadTask.on('state_changed',
-            snap => {
-              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-              progressFill.style.width = pct + '%';
-            },
-            (err) => { clearTimeout(uploadTimeout); reject(err); },
-            async () => {
-              clearTimeout(uploadTimeout);
-              const url = await getDownloadURL(uploadTask.snapshot.ref);
-              await updateDoc(doc(db, COLL, docRef.id), { imagenUrl: url });
-              resolve();
-            }
-          );
-        });
+        try {
+          await new Promise((resolve, reject) => {
+            const uploadTimeout = setTimeout(() => {
+              uploadTask.cancel();
+              reject(new Error('Timeout'));
+            }, 30000);
+            uploadTask.on('state_changed',
+              snap => {
+                const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+                progressFill.style.width = pct + '%';
+              },
+              (err) => { clearTimeout(uploadTimeout); reject(err); },
+              async () => {
+                clearTimeout(uploadTimeout);
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                await updateDoc(doc(db, COLL, docRef.id), { imagenUrl: url });
+                resolve();
+              }
+            );
+          });
+        } catch (imgErr) {
+          console.error('Error al subir imagen:', imgErr?.code, imgErr?.message, imgErr);
+          const imgMsg = imgErr?.code === 'storage/unauthorized'
+            ? '⛔ Storage rechazó la imagen. Actualizá las Reglas en Firebase Storage.'
+            : imgErr?.message === 'Timeout'
+              ? 'La imagen tardó demasiado en subir.'
+              : `Error al subir imagen (${imgErr?.code || imgErr?.message || 'desconocido'}).`;
+          closeModal('modal-add');
+          resetForm();
+          showToast('Artículo guardado, pero sin imagen: ' + imgMsg, 'error');
+          return;
+        }
       }
 
       closeModal('modal-add');
@@ -1354,9 +1367,7 @@
       console.error('Error al guardar:', err?.code, err?.message, err);
       const msg = (err?.code === 'permission-denied' || err?.message?.includes('RULES_DENIED'))
         ? '⛔ Firebase rechazó el guardado. Actualizá las Reglas en la consola de Firestore.'
-        : err?.message?.includes('Timeout')
-          ? 'Imagen tardó demasiado. El artículo se guardó sin imagen.'
-          : 'Error al guardar. Revisá la conexión.';
+        : 'Error al guardar. Revisá la conexión.';
       showToast(msg, 'error');
     } finally {
       submitBtn.disabled = false;

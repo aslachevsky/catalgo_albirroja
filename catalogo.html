@@ -1077,7 +1077,7 @@
       <button class="btn-cancel" data-close="modal-add">Cancelar</button>
       <button type="button" class="btn-submit" id="btn-submit">
         <div class="spinner" id="submit-spinner"></div>
-        Guardar Artículo
+        <span id="btn-submit-label">Guardar Artículo</span>
       </button>
     </div>
   </div>
@@ -1122,30 +1122,26 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
   import {
     getFirestore, collection, addDoc, getDocs,
-    doc, updateDoc, query, orderBy, serverTimestamp, onSnapshot, getDocFromServer
+    doc, setDoc, updateDoc, query, orderBy, serverTimestamp, onSnapshot
   } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
-  import {
-    getStorage, ref, uploadBytesResumable, getDownloadURL
-  } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-storage.js";
-
   /* ── Firebase init ── */
   const firebaseConfig = {
     apiKey: "AIzaSyBOB3EZQQ8jKOyieOqt5_EebUn8ITknAfY",
     authDomain: "helio-produce.firebaseapp.com",
     projectId: "helio-produce",
-    storageBucket: "helio-produce.firebasestorage.app",
     messagingSenderId: "217860282947",
     appId: "1:217860282947:web:de5d1c000d2ff0c8efd2f6"
   };
-  const app    = initializeApp(firebaseConfig);
-  const db      = getFirestore(app, "andyslapry");
-  const storage = getStorage(app);
-  const COLL    = "andyslapry";   // nombre de la colección en Firestore
+  const app  = initializeApp(firebaseConfig);
+  const db   = getFirestore(app, "andyslapry");
+  const COLL = "andyslapry";
 
   /* ── Estado ── */
   let allArticulos = [];
   let filteredArticulos = [];
-  let uploadedImageFile = null;
+  let uploadedImageBase64 = null;
+  let editingId = null;
+  let editingImageUrl = '';
 
   /* ── Referencias DOM ── */
   const grid        = document.getElementById('articulos-grid');
@@ -1235,10 +1231,10 @@
   }
 
   function handleFilePreview(file) {
-    if (file.size > 5 * 1024 * 1024) { showToast('La imagen supera los 5MB', 'error'); return; }
-    uploadedImageFile = file;
+    if (file.size > 700 * 1024) { showToast('La imagen supera los 700KB. Comprimila antes de subir.', 'error'); return; }
     const reader = new FileReader();
     reader.onload = ev => {
+      uploadedImageBase64 = ev.target.result;
       uploadPreview.src = ev.target.result;
       uploadPreview.style.display = 'block';
       uploadPlaceholder.style.display = 'none';
@@ -1249,7 +1245,10 @@
   /* ── Limpiar formulario ── */
   function resetForm() {
     document.getElementById('form-add').reset();
-    uploadedImageFile = null;
+    uploadedImageBase64 = null;
+    editingId = null;
+    editingImageUrl = '';
+    uploadPreview.src = '';
     uploadPreview.style.display = 'none';
     uploadPlaceholder.style.display = 'block';
     document.getElementById('f-categoria-otro').style.display = 'none';
@@ -1257,6 +1256,8 @@
     document.getElementById('progress-bar').style.display = 'none';
     document.getElementById('progress-fill').style.width = '0%';
     document.querySelectorAll('.form-control.invalid').forEach(el => el.classList.remove('invalid'));
+    document.getElementById('modal-add-title').textContent = 'Agregar Artículo al Catálogo';
+    document.getElementById('btn-submit-label').textContent = 'Guardar Artículo';
   }
 
   /* ── Validación ── */
@@ -1294,80 +1295,42 @@
 
     const catVal = document.getElementById('f-categoria').value;
     const tipoVal = document.getElementById('f-tipo').value;
-    const articulo = {
-      categoria: catVal === '__otra__' ? document.getElementById('f-categoria-otro').value.trim() : catVal,
-      tipo: tipoVal === '__otro__' ? document.getElementById('f-tipo-otro').value.trim() : tipoVal,
-      marca: document.getElementById('f-marca').value.trim(),
-      oficial: document.getElementById('f-oficial').value,
-      descripcion: document.getElementById('f-descripcion').value.trim(),
-      cantidadVariantes: parseInt(document.getElementById('f-variantes').value) || 1,
-      linkOficial: document.getElementById('f-link').value.trim(),
-      dondeConseguir: document.getElementById('f-donde').value.trim(),
-      imagenUrl: '',
-      fechaCarga: serverTimestamp()
-    };
-
     try {
-      console.log('[CATALOGO] PASO 1: addDoc iniciando...');
-      const docRef = await addDoc(collection(db, COLL), articulo);
-      console.log('[CATALOGO] PASO 2: addDoc OK, ID:', docRef.id);
+      // 1. Referencia al doc (nueva o existente)
+      const docRef = editingId ? doc(db, COLL, editingId) : doc(collection(db, COLL));
 
-      console.log('[CATALOGO] PASO 3: verificando en servidor...');
-      const serverDoc = await getDocFromServer(docRef);
-      console.log('[CATALOGO] PASO 4: servidor respondió, exists:', serverDoc.exists());
+      // 2. Imagen: usar base64 nuevo o conservar el existente
+      const imagenUrl = uploadedImageBase64 || (editingId ? editingImageUrl : '');
 
-      if (!serverDoc.exists()) {
-        throw new Error('RULES_DENIED: El servidor rechazó el guardado.');
+      // 3. Datos del artículo
+      const data = {
+        categoria: catVal === '__otra__' ? document.getElementById('f-categoria-otro').value.trim() : catVal,
+        tipo: tipoVal === '__otro__' ? document.getElementById('f-tipo-otro').value.trim() : tipoVal,
+        marca: document.getElementById('f-marca').value.trim(),
+        oficial: document.getElementById('f-oficial').value,
+        descripcion: document.getElementById('f-descripcion').value.trim(),
+        cantidadVariantes: parseInt(document.getElementById('f-variantes').value) || 1,
+        linkOficial: document.getElementById('f-link').value.trim(),
+        dondeConseguir: document.getElementById('f-donde').value.trim(),
+        imagenUrl,
+      };
+
+      // 4. Guardar (crear o actualizar)
+      if (editingId) {
+        await updateDoc(docRef, data);
+      } else {
+        await setDoc(docRef, { ...data, fechaCarga: serverTimestamp() });
       }
 
-      // 2. Subir imagen si hay
-      if (uploadedImageFile) {
-        console.log('[CATALOGO] PASO 5: subiendo imagen...');
-        const progressBar = document.getElementById('progress-bar');
-        const progressFill = document.getElementById('progress-fill');
-        progressBar.style.display = 'block';
-
-        const ext = uploadedImageFile.name.split('.').pop();
-        const storRef = ref(storage, `articulos/${docRef.id}/imagen.${ext}`);
-        const uploadTask = uploadBytesResumable(storRef, uploadedImageFile);
-
-        await new Promise((resolve, reject) => {
-          const uploadTimeout = setTimeout(() => {
-            uploadTask.cancel();
-            reject(new Error('Timeout: la imagen tardó demasiado en subir'));
-          }, 30000);
-          uploadTask.on('state_changed',
-            snap => {
-              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-              progressFill.style.width = pct + '%';
-              console.log('[CATALOGO] imagen upload:', pct + '%');
-            },
-            (err) => { clearTimeout(uploadTimeout); console.error('[CATALOGO] Storage error:', err?.code, err); reject(err); },
-            async () => {
-              clearTimeout(uploadTimeout);
-              console.log('[CATALOGO] PASO 6: imagen subida, obteniendo URL...');
-              const url = await getDownloadURL(uploadTask.snapshot.ref);
-              await updateDoc(doc(db, COLL, docRef.id), { imagenUrl: url });
-              console.log('[CATALOGO] PASO 7: URL guardada OK');
-              resolve();
-            }
-          );
-        });
-      }
-
-      console.log('[CATALOGO] PASO FINAL: guardado completo');
+      const wasEditing = !!editingId;
       closeModal('modal-add');
       resetForm();
-      showToast('¡Artículo agregado al catálogo!');
+      showToast(wasEditing ? '¡Artículo actualizado!' : '¡Artículo agregado al catálogo!');
     } catch (err) {
       console.error('[CATALOGO] ERROR:', err?.code, err?.message, err);
-      const msg = (err?.code === 'permission-denied' || err?.message?.includes('RULES_DENIED'))
+      const msg = err?.code === 'permission-denied'
         ? '⛔ Firebase rechazó el guardado. Revisá las Reglas de Firestore.'
-        : err?.code === 'storage/unauthorized'
-          ? '⛔ Sin permiso para subir imágenes. Revisá las Reglas de Storage.'
-          : err?.message?.includes('Timeout')
-          ? 'Imagen tardó demasiado. El artículo se guardó sin imagen.'
-          : `Error al guardar: ${err?.code || err?.message || 'desconocido'}`;
+        : `Error al guardar: ${err?.code || err?.message || 'desconocido'}`;
       showToast(msg, 'error');
     } finally {
       submitBtn.disabled = false;
@@ -1427,6 +1390,7 @@
           <div class="card-footer">
             <div class="card-actions">
               <button class="icon-btn" title="Ver imagen" onclick="viewArticulo('${art.id}')">🖼️</button>
+              <button class="icon-btn" title="Editar artículo" onclick="editArticulo('${art.id}')">✏️</button>
               ${linkBtn}
             </div>
             ${dondeText}
@@ -1501,6 +1465,56 @@
     openModal('modal-view');
   };
   window.openAddModal = openAddModal;
+
+  function openEditModal(id) {
+    const art = allArticulos.find(a => a.id === id);
+    if (!art) return;
+    editingId = id;
+    editingImageUrl = art.imagenUrl || '';
+
+    const KNOWN_CATS  = ['Bebidas', 'Yerba Mate', 'Comestibles', 'Figuritas'];
+    const KNOWN_TIPOS = ['Vaso', 'Lata', 'Caja', 'Muñeco', 'Sobre', 'Álbum'];
+
+    const catSel  = document.getElementById('f-categoria');
+    const catOtro = document.getElementById('f-categoria-otro');
+    if (KNOWN_CATS.includes(art.categoria)) {
+      catSel.value = art.categoria;
+      catOtro.style.display = 'none';
+    } else {
+      catSel.value = '__otra__';
+      catOtro.value = art.categoria || '';
+      catOtro.style.display = 'block';
+    }
+
+    const tipoSel  = document.getElementById('f-tipo');
+    const tipoOtro = document.getElementById('f-tipo-otro');
+    if (KNOWN_TIPOS.includes(art.tipo)) {
+      tipoSel.value = art.tipo;
+      tipoOtro.style.display = 'none';
+    } else {
+      tipoSel.value = '__otro__';
+      tipoOtro.value = art.tipo || '';
+      tipoOtro.style.display = 'block';
+    }
+
+    document.getElementById('f-marca').value         = art.marca || '';
+    document.getElementById('f-oficial').value       = art.oficial || '';
+    document.getElementById('f-descripcion').value   = art.descripcion || '';
+    document.getElementById('f-variantes').value     = art.cantidadVariantes || 1;
+    document.getElementById('f-link').value          = art.linkOficial || '';
+    document.getElementById('f-donde').value         = art.dondeConseguir || '';
+
+    if (art.imagenUrl) {
+      uploadPreview.src = art.imagenUrl;
+      uploadPreview.style.display = 'block';
+      uploadPlaceholder.style.display = 'none';
+    }
+
+    document.getElementById('modal-add-title').textContent = 'Editar Artículo';
+    document.getElementById('btn-submit-label').textContent = 'Guardar Cambios';
+    openModal('modal-add');
+  }
+  window.editArticulo = openEditModal;
 
   /* ── Filtros ── */
   function applyFilters() {
