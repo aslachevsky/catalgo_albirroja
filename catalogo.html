@@ -590,6 +590,7 @@
 
     /* Upload area */
     .upload-area {
+      display: block;
       border: 2px dashed var(--gris-borde);
       border-radius: 8px;
       padding: 20px;
@@ -1048,15 +1049,15 @@
           <!-- Imagen -->
           <div class="form-group full">
             <label>Imagen del artículo</label>
-            <div class="upload-area" id="upload-area">
+            <label class="upload-area" id="upload-area">
               <input type="file" id="f-imagen" accept="image/*" />
               <div id="upload-placeholder">
                 <div class="upload-icon">📷</div>
-                <p>Arrastrá una imagen o <strong>hacé click aquí</strong></p>
+                <p>Tocá aquí para seleccionar una imagen</p>
                 <p style="margin-top:4px; font-size:0.74rem; color:#bbb;">JPG, PNG, WEBP — máx. 5MB</p>
               </div>
               <img id="upload-preview" class="upload-preview" alt="Preview" />
-            </div>
+            </label>
             <div class="progress-bar" id="progress-bar">
               <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
             </div>
@@ -1212,7 +1213,6 @@
   const uploadPlaceholder = document.getElementById('upload-placeholder');
 
   fileInput.addEventListener('change', handleFileSelect);
-  uploadArea.addEventListener('click', () => fileInput.click());
   uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
   uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
   uploadArea.addEventListener('drop', e => {
