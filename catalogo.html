@@ -598,13 +598,20 @@
       cursor: pointer;
       transition: border-color 0.2s, background 0.2s;
       position: relative;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     .upload-area:hover, .upload-area.drag-over {
       border-color: var(--rojo);
       background: rgba(204,0,1,0.04);
     }
     .upload-area input[type="file"] {
-      display: none;
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      overflow: hidden;
+      left: -9999px;
     }
     .upload-icon { font-size: 1.8rem; margin-bottom: 6px; }
     .upload-area p { font-size: 0.82rem; color: #888; }
