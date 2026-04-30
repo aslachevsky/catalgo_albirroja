@@ -605,6 +605,9 @@
     .upload-area input[type="file"] {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
       opacity: 0;
       cursor: pointer;
     }
@@ -1070,7 +1073,7 @@
     </div>
     <div class="form-footer">
       <button class="btn-cancel" data-close="modal-add">Cancelar</button>
-      <button class="btn-submit" id="btn-submit">
+      <button type="button" class="btn-submit" id="btn-submit">
         <div class="spinner" id="submit-spinner"></div>
         Guardar Artículo
       </button>
@@ -1117,7 +1120,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
   import {
     getFirestore, collection, addDoc, getDocs,
-    doc, updateDoc, query, orderBy, serverTimestamp, onSnapshot
+    doc, updateDoc, query, orderBy, serverTimestamp, onSnapshot, getDocFromServer
   } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
   import {
     getStorage, ref, uploadBytesResumable, getDownloadURL
@@ -1133,7 +1136,7 @@
     appId: "1:217860282947:web:de5d1c000d2ff0c8efd2f6"
   };
   const app    = initializeApp(firebaseConfig);
-  const db      = getFirestore(app);
+  const db      = getFirestore(app, "andyslapry");
   const storage = getStorage(app);
   const COLL    = "andyslapry";   // nombre de la colección en Firestore
 
@@ -1215,6 +1218,7 @@
   const uploadPlaceholder = document.getElementById('upload-placeholder');
 
   fileInput.addEventListener('change', handleFileSelect);
+  uploadArea.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
   uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
   uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
   uploadArea.addEventListener('drop', e => {
@@ -1279,7 +1283,8 @@
   }
 
   /* ── Submit ── */
-  document.getElementById('btn-submit').addEventListener('click', async () => {
+  document.getElementById('btn-submit').addEventListener('click', async (e) => {
+    e.preventDefault();
     if (!validateForm()) { showToast('Completá los campos obligatorios', 'error'); return; }
     const spinner = document.getElementById('submit-spinner');
     const submitBtn = document.getElementById('btn-submit');
@@ -1302,11 +1307,21 @@
     };
 
     try {
-      // 1. Guardar documento
+      console.log('[CATALOGO] PASO 1: addDoc iniciando...');
       const docRef = await addDoc(collection(db, COLL), articulo);
+      console.log('[CATALOGO] PASO 2: addDoc OK, ID:', docRef.id);
+
+      console.log('[CATALOGO] PASO 3: verificando en servidor...');
+      const serverDoc = await getDocFromServer(docRef);
+      console.log('[CATALOGO] PASO 4: servidor respondió, exists:', serverDoc.exists());
+
+      if (!serverDoc.exists()) {
+        throw new Error('RULES_DENIED: El servidor rechazó el guardado.');
+      }
 
       // 2. Subir imagen si hay
       if (uploadedImageFile) {
+        console.log('[CATALOGO] PASO 5: subiendo imagen...');
         const progressBar = document.getElementById('progress-bar');
         const progressFill = document.getElementById('progress-fill');
         progressBar.style.display = 'block';
@@ -1316,27 +1331,43 @@
         const uploadTask = uploadBytesResumable(storRef, uploadedImageFile);
 
         await new Promise((resolve, reject) => {
+          const uploadTimeout = setTimeout(() => {
+            uploadTask.cancel();
+            reject(new Error('Timeout: la imagen tardó demasiado en subir'));
+          }, 30000);
           uploadTask.on('state_changed',
             snap => {
               const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
               progressFill.style.width = pct + '%';
+              console.log('[CATALOGO] imagen upload:', pct + '%');
             },
-            reject,
+            (err) => { clearTimeout(uploadTimeout); console.error('[CATALOGO] Storage error:', err?.code, err); reject(err); },
             async () => {
+              clearTimeout(uploadTimeout);
+              console.log('[CATALOGO] PASO 6: imagen subida, obteniendo URL...');
               const url = await getDownloadURL(uploadTask.snapshot.ref);
               await updateDoc(doc(db, COLL, docRef.id), { imagenUrl: url });
+              console.log('[CATALOGO] PASO 7: URL guardada OK');
               resolve();
             }
           );
         });
       }
 
+      console.log('[CATALOGO] PASO FINAL: guardado completo');
       closeModal('modal-add');
       resetForm();
       showToast('¡Artículo agregado al catálogo!');
     } catch (err) {
-      console.error(err);
-      showToast('Error al guardar. Revisá la conexión.', 'error');
+      console.error('[CATALOGO] ERROR:', err?.code, err?.message, err);
+      const msg = (err?.code === 'permission-denied' || err?.message?.includes('RULES_DENIED'))
+        ? '⛔ Firebase rechazó el guardado. Revisá las Reglas de Firestore.'
+        : err?.code === 'storage/unauthorized'
+          ? '⛔ Sin permiso para subir imágenes. Revisá las Reglas de Storage.'
+          : err?.message?.includes('Timeout')
+          ? 'Imagen tardó demasiado. El artículo se guardó sin imagen.'
+          : `Error al guardar: ${err?.code || err?.message || 'desconocido'}`;
+      showToast(msg, 'error');
     } finally {
       submitBtn.disabled = false;
       spinner.style.display = 'none';

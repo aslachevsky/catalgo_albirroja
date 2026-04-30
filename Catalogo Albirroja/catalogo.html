@@ -605,6 +605,9 @@
     .upload-area input[type="file"] {
       position: absolute;
       inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
       opacity: 0;
       cursor: pointer;
     }
@@ -1070,7 +1073,7 @@
     </div>
     <div class="form-footer">
       <button class="btn-cancel" data-close="modal-add">Cancelar</button>
-      <button class="btn-submit" id="btn-submit">
+      <button type="button" class="btn-submit" id="btn-submit">
         <div class="spinner" id="submit-spinner"></div>
         Guardar Artículo
       </button>
@@ -1117,7 +1120,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js";
   import {
     getFirestore, collection, addDoc, getDocs,
-    doc, updateDoc, query, orderBy, serverTimestamp, onSnapshot
+    doc, updateDoc, query, orderBy, serverTimestamp, onSnapshot, getDocFromServer
   } from "https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js";
   import {
     getStorage, ref, uploadBytesResumable, getDownloadURL
@@ -1215,6 +1218,7 @@
   const uploadPlaceholder = document.getElementById('upload-placeholder');
 
   fileInput.addEventListener('change', handleFileSelect);
+  uploadArea.addEventListener('click', (e) => { if (e.target !== fileInput) fileInput.click(); });
   uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('drag-over'); });
   uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('drag-over'));
   uploadArea.addEventListener('drop', e => {
@@ -1279,7 +1283,8 @@
   }
 
   /* ── Submit ── */
-  document.getElementById('btn-submit').addEventListener('click', async () => {
+  document.getElementById('btn-submit').addEventListener('click', async (e) => {
+    e.preventDefault();
     if (!validateForm()) { showToast('Completá los campos obligatorios', 'error'); return; }
     const spinner = document.getElementById('submit-spinner');
     const submitBtn = document.getElementById('btn-submit');
@@ -1305,6 +1310,12 @@
       // 1. Guardar documento
       const docRef = await addDoc(collection(db, COLL), articulo);
 
+      // Verificar que el servidor aceptó la escritura (no solo el caché local)
+      const serverDoc = await getDocFromServer(docRef);
+      if (!serverDoc.exists()) {
+        throw new Error('RULES_DENIED: El servidor rechazó el guardado. Actualizá las reglas de Firestore.');
+      }
+
       // 2. Subir imagen si hay
       if (uploadedImageFile) {
         const progressBar = document.getElementById('progress-bar');
@@ -1316,13 +1327,18 @@
         const uploadTask = uploadBytesResumable(storRef, uploadedImageFile);
 
         await new Promise((resolve, reject) => {
+          const uploadTimeout = setTimeout(() => {
+            uploadTask.cancel();
+            reject(new Error('Timeout: la imagen tardó demasiado en subir'));
+          }, 30000);
           uploadTask.on('state_changed',
             snap => {
               const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
               progressFill.style.width = pct + '%';
             },
-            reject,
+            (err) => { clearTimeout(uploadTimeout); reject(err); },
             async () => {
+              clearTimeout(uploadTimeout);
               const url = await getDownloadURL(uploadTask.snapshot.ref);
               await updateDoc(doc(db, COLL, docRef.id), { imagenUrl: url });
               resolve();
@@ -1335,8 +1351,13 @@
       resetForm();
       showToast('¡Artículo agregado al catálogo!');
     } catch (err) {
-      console.error(err);
-      showToast('Error al guardar. Revisá la conexión.', 'error');
+      console.error('Error al guardar:', err?.code, err?.message, err);
+      const msg = (err?.code === 'permission-denied' || err?.message?.includes('RULES_DENIED'))
+        ? '⛔ Firebase rechazó el guardado. Actualizá las Reglas en la consola de Firestore.'
+        : err?.message?.includes('Timeout')
+          ? 'Imagen tardó demasiado. El artículo se guardó sin imagen.'
+          : 'Error al guardar. Revisá la conexión.';
+      showToast(msg, 'error');
     } finally {
       submitBtn.disabled = false;
       spinner.style.display = 'none';
